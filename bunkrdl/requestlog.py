@@ -58,7 +58,8 @@ def log_path(config=None) -> Path:
     state = getattr(config, "state_db", None)
     if isinstance(state, str) and state and state != ":memory:":
         return Path(state).expanduser().parent / LOG_NAME
-    return Path.home() / ".workhub" / "bunkrdl" / LOG_NAME
+    from .config import default_home
+    return default_home() / LOG_NAME
 
 
 def _logger(path: Path) -> logging.Logger:

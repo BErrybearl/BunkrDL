@@ -1,6 +1,6 @@
-# VC-008 Bunkr 下载 — 设计
+# BunkrDL — 设计
 
-版本：v3.2（2026-11-03）。网页按用户第二轮试用反馈与 Codex 设计评审重做；v3.1 按真实相册实测收紧默认节奏，429/503 冷却改为按出口 IP 全通道停派发、指数退避与熔断。v3.2 按复核修正：Retry-After 超过 900 秒不再被截短、“需试探”独立持久化、升级保留未到期冷却、“继续”不清未到期冷却，并收紧请求日志。命令行保持串行。是否像 XArchive 一样独立成仓库，等网页验收后再定。
+版本：v3.2。网页端为单页多相册调度；429/503 冷却按出口 IP 全通道停派发，带指数退避与熔断；Retry-After 超过 900 秒不截短，“需试探”独立持久化，“继续”不清未到期冷却。命令行保持串行。
 
 ## 1. 需求
 
@@ -135,7 +135,7 @@ flowchart LR
 
 ### 5.3 命令行
 
-`get`（`--images`/`--videos`）、`links`（`--limit N`、`--print`）、`check`（`--redownload`）、`handback`、`web`、`list`、`mark-done`，以及高级命令 `add`、`download`、`export`、`reconcile`。状态库默认 `~/.workhub/bunkrdl/state.db`，下载根目录默认 `~/Downloads/bunkr/`，都在仓库外。
+`get`（`--images`/`--videos`）、`links`（`--limit N`、`--print`）、`check`（`--redownload`）、`handback`、`web`、`list`、`mark-done`，以及高级命令 `add`、`download`、`export`、`reconcile`。状态库默认 `~/.bunkrdl/state.db`，下载根目录默认 `~/Downloads/bunkr/`，都在仓库外（数据目录可由 `BUNKRDL_HOME` 指定，见 README）。
 
 ### 5.4 清除记录（接口与数据）
 

@@ -1,6 +1,6 @@
 """Request-log summary: parsing, stats, filters and CLI output.
 
-Every temporary home is redirected so the real ``~/.workhub/bunkrdl`` is
+Every temporary home is redirected so the real ``~/.bunkrdl`` is
 never read or written.
 """
 import contextlib

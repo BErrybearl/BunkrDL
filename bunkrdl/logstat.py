@@ -2,7 +2,7 @@
 
     python -m bunkrdl.logstat [日志路径] [--since 2h] [--json]
 
-The default path is ``~/.workhub/bunkrdl/web.log``; the rotated files
+The default path is ``~/.bunkrdl/web.log``; the rotated files
 ``.1``/``.2``/``.3`` are read as well, because the logger keeps four files.
 Only the log is read: nothing is downloaded and no network access happens.
 Lines that do not match the logged format are counted and ignored.
@@ -426,7 +426,7 @@ def main(argv=None) -> int:
         prog="python -m bunkrdl.logstat",
         description="汇总 Bunkr 请求日志：请求数、阶段、状态码、限速与耗时。")
     parser.add_argument("path", nargs="?",
-                        help="日志路径，默认 ~/.workhub/bunkrdl/web.log（同时读 .1/.2/.3）")
+                        help="日志路径，默认 ~/.bunkrdl/web.log（同时读 .1/.2/.3）")
     parser.add_argument("--since", help="只看这段时间之后：2h、30m、90s、3d 或 ISO 时间")
     parser.add_argument("--json", action="store_true", help="输出机器可读的 JSON")
     args = parser.parse_args(argv)

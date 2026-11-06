@@ -10,7 +10,7 @@ __pycache__/
 .venv/
 venv/
 
-# 本机状态库、请求日志与配置（正常存放在 BUNKRDL_HOME，默认 ~/.workhub/bunkrdl/）
+# 本机状态库、请求日志与配置（正常存放在 BUNKRDL_HOME，默认 ~/.bunkrdl/）
 state.db
 state.db-journal
 state.db-wal

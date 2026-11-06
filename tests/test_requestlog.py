@@ -16,6 +16,7 @@ from unittest.mock import patch
 import requests
 
 from bunkrdl import messages, requestlog
+from bunkrdl.config import default_home
 
 
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$")
@@ -93,7 +94,7 @@ class RequestLogTests(_Home):
             config = SimpleNamespace(state_db=str(self.home / "sub" / "state.db"))
             self.assertEqual(requestlog.log_path(config), self.home / "sub" / "web.log")
             self.assertEqual(requestlog.log_path(SimpleNamespace(state_db=":memory:")),
-                             Path.home() / ".workhub" / "bunkrdl" / "web.log")
+                             default_home() / "web.log")
 
     def test_retry_after_is_logged_as_normalized_seconds_only(self):
         future = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=120), usegmt=True)

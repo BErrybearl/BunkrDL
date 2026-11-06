@@ -1,8 +1,16 @@
-# VC-008 Bunkr 下载 — 使用说明
+# BunkrDL — Bunkr 相册下载工具
 
-批量下载 Bunkr 相册：本工具直接下载，或者取得下载链接交给迅雷、IDM 等工具。设计见 [DESIGN.md](DESIGN.md)，进展见 [STATUS.md](STATUS.md)。
+批量下载 Bunkr 相册：本工具直接下载，或者取得下载链接交给迅雷、IDM 等工具。设计见 [DESIGN.md](DESIGN.md)，状态与已知限制见 [STATUS.md](STATUS.md)，许可证 MIT（[LICENSE](LICENSE)）。
 
-只需要 Python 3.11+ 和 `requests`。以下命令都在本目录运行。
+> 本工具不绕过人机验证，也不做代理池轮换；请遵守 Bunkr 的服务条款和所在地法律，只下载你有权获取的内容。
+
+只需要 Python 3.11+ 和 `requests`。以下命令都在仓库根目录运行。
+
+```bash
+git clone https://github.com/BErrybearl/BunkrDL.git
+cd BunkrDL
+pip install requests
+```
 
 ## 桌面窗口
 
@@ -10,7 +18,7 @@
 python -m bunkrdl app
 ```
 
-Windows 也可以双击本目录的 `bunkr-app.pyw`（关联到 pythonw），无控制台打开窗口。要创建桌面入口，在本目录手动运行：
+Windows 也可以双击仓库根目录的 `bunkr-app.pyw`（关联到 pythonw），无控制台打开窗口。要创建桌面入口，在仓库根目录手动运行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\创建桌面快捷方式.ps1
@@ -108,9 +116,11 @@ python -m bunkrdl handback <相册链接> <文件id...>    # 把指定文件改�
 |---|---|
 | 下载目录 | `~/Downloads/bunkr/<相册标题> [<相册ID>]/`（v3 之前添加的相册，仅当原 `<相册标题>/` 目录存在、并有本相册的记录或 `.part` 归属指向它时才沿用；否则按新格式） |
 | 命令行生成的链接文件 | 下载目录下的 `_export/<时间>/part-NN-links.txt` 等 |
-| 状态库 | `~/.workhub/bunkrdl/state.db` |
-| 请求日志 | `~/.workhub/bunkrdl/web.log`（1 MB × 3 轮转，只记主机、状态码、耗时） |
-| 配置文件（可选） | `~/.workhub/bunkrdl/config.toml` |
+| 状态库 | `~/.bunkrdl/state.db` |
+| 请求日志 | `~/.bunkrdl/web.log`（1 MB × 3 轮转，只记主机、状态码、耗时） |
+| 配置文件（可选） | `~/.bunkrdl/config.toml` |
+
+数据目录可用环境变量 `BUNKRDL_HOME` 指定。旧版本把数据放在 `~/.workhub/bunkrdl/`：若 `~/.bunkrdl/` 不存在而旧目录存在，程序会继续使用旧目录（不移动、不改动其中文件）；想迁到新位置，关闭程序后把旧目录整体移动为 `~/.bunkrdl/` 即可。
 
 配置文件只需写要改的项，键名见 [bunkrdl/config.py](bunkrdl/config.py)，例如：
 
@@ -125,7 +135,7 @@ Bunkr 更换域名或接口时，改 `domains`、`api_url`、`sign_url` 即可�
 ## 出问题怎么查
 
 1. **看红条文字**。单个文件失败时会提示几秒，写明原因和请求上下文，例如“被网站限速（429）· 阶段：文件体 · 主机 cdn.bunkr.cr · 建议等待 120 秒”。“阶段”说明卡在哪一步（相册页、解析、签名、文件体），“主机”说明是网站还是 CDN，同一句话就能判断该等还是该换网络。
-2. **看请求日志**。`~/.workhub/bunkrdl/web.log` 每个请求一行：时间、阶段、方法、主机、状态码（或异常类型）、Retry-After、收到字节数、耗时；不含 token 和完整地址。1 MB 自动轮转，保留 3 份。如果 429 或超时集中在某个时间段，对照本地代理（127.0.0.1:28080）的日志看同一时刻有没有限速或超时记录，就能分清是网站限的、还是代理/网络的问题。
+2. **看请求日志**。`~/.bunkrdl/web.log` 每个请求一行：时间、阶段、方法、主机、状态码（或异常类型）、Retry-After、收到字节数、耗时；不含 token 和完整地址。1 MB 自动轮转，保留 3 份。如果 429 或超时集中在某个时间段，对照你使用的本地代理或网络工具的日志看同一时刻有没有限速或超时记录，就能分清是网站限的、还是代理/网络的问题。
 3. **被限速后先等一会儿**。工具会自动停一会儿再继续，连续被限速就逐级加长：120 → 240 → 480 → 900 秒，中间有一个文件成功就回到 120 秒重新算。冷却期内点“添加”会直接提示还要等多少秒，不会白跑一次请求。
 4. **还是太急就调低并发**。顶栏把图片、视频的同时处理数调小（图片 1–6、视频 1–3），新设置立即生效，正在下的文件不受影响。
 
@@ -148,7 +158,7 @@ python -m unittest discover -s tests
 
 ## 分析请求日志
 
-每个请求都记在状态库旁边的 `web.log`（默认 `~/.workhub/bunkrdl/web.log`，自动轮转，保留 4 个文件），可以汇总成中文报告：
+每个请求都记在状态库旁边的 `web.log`（默认 `~/.bunkrdl/web.log`，自动轮转，保留 4 个文件），可以汇总成中文报告：
 
 ```bash
 python -m bunkrdl.logstat                  # 默认读 web.log 和 .1/.2/.3

@@ -1,4 +1,4 @@
-"""Default configuration (DESIGN 3) with optional config.toml overrides. Shared; changes go through the coordinator."""
+"""Default configuration (DESIGN 3) with optional config.toml overrides."""
 from __future__ import annotations
 
 import os
@@ -12,8 +12,25 @@ DEFAULT_UA = (
 )
 
 
+def default_home() -> Path:
+    """Data directory: ``$BUNKRDL_HOME``, else ``~/.bunkrdl``.
+
+    Compatibility: if ``~/.bunkrdl`` does not exist but the legacy
+    ``~/.workhub/bunkrdl`` does, the legacy directory is kept in use (never
+    moved or modified), so an existing state database is not disturbed.
+    """
+    env = os.environ.get("BUNKRDL_HOME")
+    if env:
+        return Path(env).expanduser()
+    new = Path.home() / ".bunkrdl"
+    legacy = Path.home() / ".workhub" / "bunkrdl"
+    if not new.exists() and legacy.is_dir():
+        return legacy
+    return new
+
+
 def _home() -> Path:
-    return Path(os.environ.get("BUNKRDL_HOME", Path.home() / ".workhub" / "bunkrdl"))
+    return default_home()
 
 
 @dataclass
