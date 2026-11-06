@@ -166,16 +166,27 @@ def reconcile(store, album_id, folder, requeue=True, *, dry_run=False, checks=No
         if record.cdn_name and '/' not in record.cdn_name and '\\' not in record.cdn_name:
             candidates.append(record.cdn_name)
         candidates.append(name)
+        base_candidates = list(dict.fromkeys(candidates))
         if record.local_path:
             previous = Path(record.local_path)
             if previous.parent == root:
                 candidates.append(previous.name)
         paths = [entries.get(candidate.casefold()) for candidate in candidates]
+        # Downloader collision suffixes are a fallback only when every exact
+        # name is absent, including the previously recorded local path.
+        duplicate_match = not any(path is not None for path in paths)
+        if duplicate_match:
+            for candidate in base_candidates:
+                base = Path(candidate)
+                for number in range(1, 10):
+                    candidates.extend(f'{base.stem}{suffix}{base.suffix}' for suffix in
+                                      (f' ({number})', f'({number})', f'_{number}'))
+            paths = [entries.get(candidate.casefold()) for candidate in candidates]
         found = next((path for path in paths if complete(path, record)), None)
         if found is not None:
             unverified = checked(found, record)[1]
             destination = found
-            if record.cdn_name and found.name.casefold() == record.cdn_name.casefold():
+            if duplicate_match or (record.cdn_name and found.name.casefold() == record.cdn_name.casefold()):
                 destination = root / name
                 if destination.name.casefold() != found.name.casefold() and not dry_run:
                     number = 2
@@ -194,7 +205,8 @@ def reconcile(store, album_id, folder, requeue=True, *, dry_run=False, checks=No
                     entries[destination.name.casefold()] = destination
                     occupied.discard(found.name.casefold())
                     occupied.add(destination.name.casefold())
-            claimed.setdefault(path_key(destination), set()).add((record.album_id, record.file_id))
+            claimed.setdefault(path_key(found if dry_run else destination), set()).add(
+                (record.album_id, record.file_id))
             if dry_run:
                 continue
             if unverified:
