@@ -1,0 +1,37 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 虚拟环境
+.venv/
+venv/
+
+# 本机状态库、请求日志与配置（正常存放在 BUNKRDL_HOME，默认 ~/.workhub/bunkrdl/）
+state.db
+state.db-journal
+state.db-wal
+state.db-shm
+web.log
+web.log.*
+config.toml
+.local/
+.runtime/
+
+# 下载内容：只在本机存在，不进仓库
+downloads/
+Downloads/
+bunkr/
+_export/
+*.part
+
+# 编辑器与系统
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
