@@ -36,6 +36,10 @@ def record(file_id, name='片段.mp4', **fields):
 class MemoryStore:
     def __init__(self, records):
         self.records = [replace(r) for r in records]
+        self.meta = {}
+
+    def remember_action(self, album_id, file_id, action):
+        self.meta[f'web:{album_id}:last_action:{file_id}'] = action
 
     def list_files(self, album_id, status=None, kinds=None):
         return [replace(r) for r in self.records if r.album_id == album_id

@@ -260,25 +260,28 @@ def make_server(config, store=None, host=None, port=None):
                                          "retry_after": seconds})
                     return
 
-                def add():
+                def resolve():
+                    # Network parsing runs outside the scheduler lock.
                     client = coordinator.new_client()
                     try:
                         if _LINK_PATH.fullmatch(urlsplit(url).path).group(1) != "a":
                             item = client.get_file(url)
-                            album = Album(ident, item.name, url, [item])
-                        else:
-                            album = client.get_album(url)
-                        # Re-adding an album must not overwrite records that the
-                        # scheduler is still using; check by album id before persist.
-                        coordinator.ensure_album_idle(album.album_id)
-                        store.upsert_album(album)
-                        store.set_album_hidden(album.album_id, False)
-                        flows.album_dest(config, album, store=store)
-                        return {"album_id": album.album_id, "title": album.title}
+                            return Album(ident, item.name, url, [item])
+                        return client.get_album(url)
                     finally:
                         client.session.close()
+
+                def persist(album):
+                    # Re-adding an album must not overwrite records that the
+                    # scheduler is still using; check by album id before persist.
+                    coordinator.ensure_album_idle(album.album_id)
+                    store.upsert_album(album)
+                    store.set_album_hidden(album.album_id, False)
+                    flows.album_dest(config, album, store=store)
+                    return {"album_id": album.album_id, "title": album.title}
                 try:
-                    result = coordinator.mutate(add)
+                    album = resolve()
+                    result = coordinator.mutate(lambda: persist(album))
                 except ChallengeRequired:
                     # Parsing happens off the work queue; still pause everything
                     # through the scheduler so the UI shows the challenge reason.
@@ -373,13 +376,22 @@ def make_server(config, store=None, host=None, port=None):
                 folder = folder.strip()
 
                 def check():
-                    result = flows.check_folder(store, ident, folder)
+                    result = flows.check_folder(store, ident, folder, checks=cache)
                     store.set_meta(f"web:{ident}:folder", folder)
                     data = asdict(result)
                     data["failed_ids"] = list(dict.fromkeys(result.missing + result.mismatched))
                     return data
                 keys = [(ident, r.file_id) for r in store.list_files(ident)]
+                # Directory listing and content checks run outside the lock;
+                # inside it only renames and record writes remain.
+                coordinator.ensure_files_idle(keys)
+                cache = flows.prescan_folder(store, ident, folder)
                 self.send_data(200, coordinator.mutate(check, file_keys=keys))
+            elif op == "handback":
+                ids = self.file_ids(body, ident)
+                updated = coordinator.mutate(lambda: flows.hand_back(store, ident, ids),
+                                             file_keys=[(ident, i) for i in ids])
+                self.send_data(200, {"updated": updated})
             elif op in ("skip", "mark-done"):
                 ids = self.file_ids(body, ident)
 
@@ -566,7 +578,7 @@ td.empty-cell{text-align:center;color:#68768a;padding:34px 12px}
 <article><div id="empty" role="status" aria-live="polite"><strong id="empty-title">还没有选择相册</strong><p id="empty-hint">在左侧粘贴相册链接或单文件链接，点“添加”开始；已有相册点标题即可打开。打开相册后可用“检查外部下载文件夹”，把已经下过或下了一半的文件登记进来。</p><div id="empty-actions" class="line"><button id="empty-paste" type="button">去粘贴链接</button><button id="empty-retry" type="button" hidden>重试</button></div></div><div id="detail" hidden>
 <section><h2 id="title"></h2><p id="overview" class="muted"></p><progress id="album-progress" max="100" value="0" aria-label="相册完成进度"></progress><div class="line"><button id="retry" hidden>重试失败的 (0)</button><button id="check-toggle">检查外部下载文件夹</button><button id="open">打开下载文件夹</button></div><div id="check-box" hidden><p id="check-note" class="small muted">外部下载文件夹（仅用于检查，不是本相册的保存位置）</p><div class="line"><input id="folder" aria-label="外部下载文件夹" placeholder="选择或输入外部下载文件夹"><button id="pick">选择文件夹</button><button id="check">开始检查</button></div><p id="check-result" class="muted"></p></div></section>
 <section id="files-section"><div class="line"><strong id="file-count">文件</strong><input id="search" type="search" placeholder="搜索文件名" aria-label="搜索文件名"><select id="filter" aria-label="筛选文件"><option value="all">全部</option><option value="image">图片</option><option value="video">视频</option><option value="unfinished">未完成</option><option value="failed">失败</option><option value="exported">链接已生成</option></select></div>
-<div id="selection" class="line selection" hidden><span id="selected-count"></span><button id="cancel-queue" class="primary" hidden>取消排队</button><button id="download" class="primary">下载</button><button id="links">获取下载链接</button><button id="copy">复制链接</button><details class="menu"><summary>更多</summary><button id="skip">跳过</button><button id="mark-done">标为完成</button><button id="purge-selected">清除选中的记录…</button></details><span id="selection-note" class="small muted"></span></div>
+<div id="selection" class="line selection" hidden><span id="selected-count"></span><button id="cancel-queue" class="primary" hidden>取消排队</button><button id="download" class="primary">下载</button><button id="links">获取下载链接</button><button id="copy">复制链接</button><details class="menu"><summary>更多</summary><button id="skip">跳过</button><button id="mark-done">标为完成</button><button id="handback">改回待下载</button><button id="purge-selected">清除选中的记录…</button></details><span id="selection-note" class="small muted"></span></div>
 <textarea id="copy-fallback" readonly hidden aria-label="请全选并复制下载链接"></textarea>
 <div id="files-scroll" class="scroll"><table><thead><tr><th><input id="select-visible" type="checkbox" aria-label="全选当前筛选"></th><th><button id="sort-name" class="sort" type="button">名称</button></th><th>类型</th><th><button id="sort-size" class="sort" type="button">大小</button></th><th>进度</th><th><button id="sort-status" class="sort" type="button">状态</button></th></tr></thead><tbody id="files"></tbody></table></div></section></div></article></main>
 <script>
@@ -743,7 +755,7 @@ $('cancel-queue').onclick=()=>run(cancelQueued);
 function askClear(text){return window.confirm(text+'\n只清除记录，不会删除已下载的文件。')}
 async function purgeAlbum(id,title){const detail=await api(albumPath(id));if(!askClear('清除相册「'+title+'」的全部记录？\n将清除 '+detail.total+' 个文件的记录，其中已完成 '+detail.counts.done+' 个。'))return;const data=await api(albumPath(id,'purge'),{});if(albumId===id){revision++;albumId=null;album=null;chosen.clear();focusFile=null;clearFileRows();setPane('guide');history.replaceState(null,'',location.pathname)}notify(data.message||('已清除 '+data.deleted+' 条记录'));markDirty();await refresh()}
 async function purgeSelected(){if(!albumId||!chosen.size)return;const id=albumId,token=revision,picked=(album?.files||[]).filter(f=>chosen.has(f.file_id));if(!picked.length)return;if(!askClear('清除选中的 '+picked.length+' 条文件记录？\n其中已完成 '+picked.filter(f=>f.status==='done').length+' 个。'))return;const data=await api(albumPath(id,'files/delete'),{file_ids:picked.map(f=>f.file_id)});if(albumId!==id||revision!==token)return;chosen.clear();notify(data.message||('已清除 '+data.deleted+' 条记录'));markDirty();await refresh()}
-$('purge-selected').onclick=()=>run(purgeSelected);$('download').onclick=()=>run(()=>selectedAction('enqueue','download'));$('links').onclick=()=>run(()=>selectedAction('enqueue','link'));$('skip').onclick=()=>run(()=>selectedAction('skip'));$('mark-done').onclick=()=>run(()=>selectedAction('mark-done'));$('copy').onclick=()=>run(()=>copyLinks((album?.files||[]).filter(f=>chosen.has(f.file_id))));
+$('purge-selected').onclick=()=>run(purgeSelected);$('download').onclick=()=>run(()=>selectedAction('enqueue','download'));$('links').onclick=()=>run(()=>selectedAction('enqueue','link'));$('skip').onclick=()=>run(()=>selectedAction('skip'));$('mark-done').onclick=()=>run(()=>selectedAction('mark-done'));$('handback').onclick=()=>run(()=>selectedAction('handback'));$('copy').onclick=()=>run(()=>copyLinks((album?.files||[]).filter(f=>chosen.has(f.file_id))));
 $('retry').onclick=()=>run(async()=>{const id=albumId;await api(albumPath(id,'retry-failed'),{});if(albumId===id)markDirty();await refresh()});$('open').onclick=()=>run(()=>api(albumPath(albumId,'open-folder'),{}));$('check-toggle').onclick=()=>{$('check-box').hidden=!$('check-box').hidden};$('folder').oninput=()=>{folderTouched=true};
 $('pick').onclick=()=>run(async()=>{const id=albumId,token=revision,data=await api('pick-folder',{initial:$('folder').value||null});if(albumId!==id||revision!==token)return;if(data.path){$('folder').value=data.path;folderTouched=true}else notify('没有选择文件夹，也可以手动输入路径')});
 $('check').onclick=()=>run(async()=>{const id=albumId,token=revision,folder=$('folder').value.trim();if(!folder){notify('请选择或输入外部下载文件夹');return}const data=await api(albumPath(id,'check'),{folder});if(albumId!==id||revision!==token)return;folderTouched=false;await loadAlbum();if(albumId!==id||revision!==token)return;setFilter('failed');chosen=new Set(data.failed_ids||[]);renderFiles();const text='已完成 '+data.completed.length+' · 缺失 '+data.missing.length+' · 不完整 '+data.mismatched.length+' · 内容待确认 '+data.unverified.length+(chosen.size?'；已选中需要补下的文件，点“下载”即可补下':'');$('check-result').textContent=text;notify(text)});

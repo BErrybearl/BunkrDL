@@ -476,6 +476,7 @@ def download_file(client, store, record, dest_dir, config, on_event=None,
         # A failed body download must not keep showing an old link's validity.
         _update(store, record, status='failed', last_error=message,
                 link_url=None, link_expires=None)
+        store.remember_action(record.album_id, record.file_id, 'download')
         _emit(on_event, 'failed', record, error_kind=kind, message=message)
         if kind == 'transient':
             replacement = TransientError(_detail(error))

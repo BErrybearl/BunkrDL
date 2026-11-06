@@ -571,8 +571,10 @@ class RateLimitE2ETests(unittest.TestCase):
         self.addCleanup(store.close)
         self.addCleanup(lambda: self.stop(second))
         second.start()
-        self.assertEqual(second.snapshot()['pause_kind'], 'restart')
-        second.resume_all()  # clear the restart pause but keep the gate
+        # stop() paused explicitly before closing, so the restart restores that pause.
+        self.assertEqual(second.snapshot()['pause_kind'], 'user')
+        self.assertEqual(second.snapshot()['pause_reason'], '用户已暂停')
+        second.resume_all()  # clear the restored pause but keep the gate
 
         snapshot = second.snapshot()
         self.assertFalse(snapshot['paused'])

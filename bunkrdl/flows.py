@@ -104,11 +104,11 @@ def make_links(client, store, album_id, dest_dir, config, file_ids,
                         file_ids=wanted)
 
 
-def check_folder(store, album_id, folder) -> ReconcileResult:
+def check_folder(store, album_id, folder, checks=None) -> ReconcileResult:
     """Check an external download folder without any network request."""
     from .reconcile import reconcile
 
-    checked = reconcile(store, album_id, Path(folder).expanduser(), requeue=False)
+    checked = reconcile(store, album_id, Path(folder).expanduser(), requeue=False, checks=checks)
     updates = [(album_id, file_id, {"status": "failed", "last_error": "外部下载未完成"})
                for file_id in checked.missing]
     updates += [(album_id, file_id, {"status": "failed", "last_error": "文件不完整"})
@@ -118,13 +118,25 @@ def check_folder(store, album_id, folder) -> ReconcileResult:
     return checked
 
 
+def prescan_folder(store, album_id, folder) -> dict:
+    """Slow, read-only part of check_folder; call it outside any scheduler lock."""
+    from .reconcile import prescan
+
+    return prescan(store, album_id, Path(folder).expanduser())
+
+
 def hand_back(store, album_id, file_ids) -> int:
-    """Return exported/failed/skipped files to the pending queue."""
+    """Return done/exported/failed/skipped files to the pending queue.
+
+    A done file keeps its bytes on disk; only the record is reset, and a later
+    download never overwrites the old file (it is saved as " (2)").
+    """
     wanted = set(file_ids or ())
     updates = [(album_id, record.file_id,
-                {"status": "pending", "link_url": None, "link_expires": None})
+                {"status": "pending", "link_url": None, "link_expires": None,
+                 "last_error": None, "local_path": None})
                for record in store.list_files(album_id)
-               if record.file_id in wanted and record.status in ("exported", "failed", "skipped")]
+               if record.file_id in wanted and record.status in ("done", "exported", "failed", "skipped")]
     if updates:
         store.update_files(updates)
     return len(updates)
@@ -304,5 +316,6 @@ def download_once(ctx: WorkContext, album_id, file_id) -> ItemResult:
             message = describe_error(kind, _detail(error), **error_context(error))
             ctx.store.update_file(album_id, file_id, status='failed', last_error=message,
                                   link_url=None, link_expires=None)
+            ctx.store.remember_action(album_id, file_id, 'download')
             return ItemResult(FAILED, error_kind=kind, message=message,
                               retry_after=getattr(error, 'retry_after', None))

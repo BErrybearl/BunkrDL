@@ -85,6 +85,7 @@ def generate_link_once(ctx: WorkContext, album_id, file_id) -> ItemResult:
         message = describe_error(kind, _detail(error))
         ctx.store.update_file(album_id, file_id, status='failed', last_error=message,
                               link_url=None, link_expires=None)
+        ctx.store.remember_action(album_id, file_id, 'link')
         return ItemResult(FAILED, kind, message, getattr(error, 'retry_after', None))
     # A finished signature is useful even if pause arrived during the request.
     ctx.store.update_file(album_id, file_id, status='exported', last_error=None,
@@ -187,6 +188,7 @@ def export_links(client, store, album_id, out_dir, config, kinds=('video',),
     def fail(record, message, error=None):
         store.update_file(album_id, record.file_id, status='failed',
                           last_error=message, link_url=None, link_expires=None)
+        store.remember_action(album_id, record.file_id, 'link')
         result.failed += 1
         failure(record, message, error)
 

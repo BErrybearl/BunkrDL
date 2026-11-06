@@ -34,6 +34,10 @@ class MemoryStore:
     def __init__(self, records):
         self.records = [replace(item) for item in records]
         self.updates = []
+        self.meta = {}
+
+    def remember_action(self, album_id, file_id, action):
+        self.meta[f'web:{album_id}:last_action:{file_id}'] = action
 
     def list_files(self, album_id, status=None, kinds=None):
         return [replace(item) for item in self.records if item.album_id == album_id
@@ -172,7 +176,8 @@ class FlowTests(unittest.TestCase):
             completed=['4'], missing=['1'], mismatched=['2'], unverified=['3'])
         result = flows.check_folder(self.store, 'abc', 'external')
         self.assertIs(result, self.reconcile.return_value)
-        self.reconcile.assert_called_once_with(self.store, 'abc', Path('external'), requeue=False)
+        self.reconcile.assert_called_once_with(self.store, 'abc', Path('external'),
+                                               requeue=False, checks=None)
         self.assertEqual((self.store.get('1').status, self.store.get('1').last_error),
                          ('failed', '外部下载未完成'))
         self.assertEqual((self.store.get('2').status, self.store.get('2').last_error),
@@ -185,15 +190,18 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(flows.check_folder(self.store, 'abc', 'ext').completed, ['1'])
         self.assertEqual(self.store.updates, [])
 
-    def test_hand_back_only_returns_finished_away_states(self):
+    def test_hand_back_returns_done_and_finished_away_states(self):
         self.store.records.append(record('5', 'e.jpg', 'image', 'skipped'))
+        self.store.get('4').local_path = 'downloads/d.jpg'
+        self.store.get('4').last_error = '旧错误'
         changed = flows.hand_back(self.store, 'abc', ['1', '2', '3', '4', '5', 'unknown'])
-        self.assertEqual(changed, 3)
-        for file_id in ('2', '3', '5'):
+        self.assertEqual(changed, 4)
+        for file_id in ('2', '3', '4', '5'):
             row = self.store.get(file_id)
-            self.assertEqual((row.status, row.link_url, row.link_expires), ('pending', None, None))
+            self.assertEqual((row.status, row.link_url, row.link_expires,
+                              row.local_path, row.last_error),
+                             ('pending', None, None, None, None))
         self.assertEqual(self.store.get('1').status, 'pending')
-        self.assertEqual(self.store.get('4').status, 'done')
         self.assertEqual(flows.hand_back(self.store, 'abc', []), 0)
 
     def test_album_dest_uses_safe_title_and_identity(self):

@@ -48,6 +48,9 @@ class FakeStore:
             raise AssertionError('store used after close')
         self.meta[key] = str(value)
 
+    def remember_action(self, album, file_id, action):
+        self.set_meta(f'web:{album}:last_action:{file_id}', action)
+
     def update_file(self, album, file_id, **fields):
         if self.closed:
             self.calls_after_close += 1

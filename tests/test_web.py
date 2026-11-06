@@ -102,6 +102,9 @@ class FakeStore:
     def set_meta(self, key, value):
         self.meta[key] = value
 
+    def remember_action(self, album_id, file_id, action):
+        self.set_meta(f'web:{album_id}:last_action:{file_id}', action)
+
     def update_files(self, updates):
         for album_id, ident, changes in updates:
             record = next(r for r in self.records if (r.album_id, r.file_id) == (album_id, ident))
@@ -163,6 +166,10 @@ class FakeCoordinator:
         if any(w.album_id == album_id for w in self.store.work):
             raise Busy('这个相册还有排队或正在处理的文件，请等待结束或取消排队后再添加')
 
+    def ensure_files_idle(self, file_keys):
+        if set(file_keys) & self.busy:
+            raise Busy('选中的文件正在处理或排队，请等待结束或取消后再操作')
+
     def pause_for_challenge(self):
         return self.pause_all('challenge')
 
@@ -196,6 +203,7 @@ class WebTests(unittest.TestCase):
         self.flows = types.SimpleNamespace(album_dest=Mock(return_value='downloads/相册 [abc]'),
             check_folder=Mock(return_value=ReconcileResult(completed=['1'], missing=['2'],
                                                          mismatched=['3'], unverified=['4'])),
+            prescan_folder=Mock(return_value={}),
             pick_folder=Mock(return_value=None), open_folder=Mock())
         self.export = types.SimpleNamespace(download_url=Mock(return_value='https://cdn.example/3?n=name'))
         self.client = Mock()
@@ -407,7 +415,8 @@ class WebTests(unittest.TestCase):
         self.assertEqual(data['unverified'], ['4'])
         self.assertEqual(self.q.calls[-1], ('mutate', (('abc', '1'), ('abc', '2'), ('abc', '3'))))
         self.assertEqual(self.store.meta, {'web:abc:folder': 'external'})
-        self.flows.check_folder.assert_called_with(self.store, 'abc', 'external')
+        self.flows.prescan_folder.assert_called_once_with(self.store, 'abc', 'external')
+        self.flows.check_folder.assert_called_with(self.store, 'abc', 'external', checks={})
         self.assertEqual(self.request('/api/albums/abc')[1]['folder'], 'external')
         self.assertEqual(self.request('/api/albums/abc/check', {'folder': ''})[0], 400)
 
@@ -1201,7 +1210,8 @@ class RealCoordinatorWebTests(unittest.TestCase):
         self.flows = types.SimpleNamespace(
             album_dest=Mock(return_value='downloads/album'),
             download_once=download_once, generate_link_once=generate_link_once,
-            check_folder=Mock(), pick_folder=Mock(return_value=None), open_folder=Mock())
+            check_folder=Mock(), prescan_folder=Mock(return_value={}),
+            pick_folder=Mock(return_value=None), open_folder=Mock())
         self.export = types.SimpleNamespace(generate_link_once=generate_link_once)
         self.client = Mock()
         self.client_class = Mock(return_value=self.client)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import threading
 import time
 from collections import Counter, deque
@@ -14,6 +15,7 @@ from .models import STATUSES, JobBusy
 from .worktypes import (ACTIONS, DOWNLOAD, FAILED, INTERRUPTED, LINK, OK, QUEUED,
                         RUNNING, Busy, EnqueueResult, ItemResult, WorkContext, lane_of)
 
+PAUSE_KEY = 'web:pause_state'
 RATE_LIMIT_PAUSE = '被网站连续限速，已暂停。建议降低并发或等一会儿再继续'
 
 
@@ -111,7 +113,8 @@ class Coordinator:
                 return
             self._items = {w.work_id: w for w in self.store.list_work_items()}
             if self._items:
-                self._pause('restart', '程序已重启，点“继续”处理保留的文件')
+                kind, reason = self._saved_pause()
+                self._pause(kind, reason)
             try:
                 self._initialize()
             except JobBusy:
@@ -119,6 +122,23 @@ class Coordinator:
             self._started = True
             self._thread = threading.Thread(target=self._run, name='bunkrdl-coordinator', daemon=True)
             self._thread.start()
+
+    def _saved_pause(self):
+        """Pause reason persisted by the previous run, else the generic restart notice."""
+        try:
+            data = json.loads(self.store.get_meta(PAUSE_KEY) or 'null')
+            if (isinstance(data, dict) and data.get('kind') in ('user', 'failures', 'challenge', 'ratelimit')
+                    and isinstance(data.get('reason'), str) and data['reason']):
+                return data['kind'], data['reason']
+        except Exception:
+            pass
+        return 'restart', '程序已重启，点“继续”处理保留的文件'
+
+    def _persist_pause(self, value):
+        try:
+            self.store.set_meta(PAUSE_KEY, json.dumps(value, ensure_ascii=False) if value else '')
+        except Exception:
+            pass  # a closing store must not break pausing
 
     def close(self, timeout=30):
         deadline = time.monotonic() + max(0, timeout)
@@ -152,6 +172,14 @@ class Coordinator:
             self._ensure_open()
             if any(w.album_id == album_id for w in self._items.values()):
                 raise Busy('这个相册还有排队或正在处理的文件，请等待结束或取消排队后再添加')
+
+    def ensure_files_idle(self, file_keys):
+        """Fail fast (before slow scans) when any (album, file) has queued/running work."""
+        with self._wake:
+            self._ensure_open()
+            keys = set(file_keys)
+            if any((w.album_id, w.file_id) in keys for w in self._items.values()):
+                raise Busy('选中的文件正在处理或排队，请等待结束或取消后再操作')
 
     def new_client(self):
         """一次性的查询客户端（如添加相册），与调度器共用同一个请求节流器。"""
@@ -379,6 +407,8 @@ class Coordinator:
         if self._paused and kind != 'challenge':
             return
         self._paused, self._pause_kind, self._pause_reason = True, kind, reason
+        if kind != 'restart':
+            self._persist_pause({'kind': kind, 'reason': reason})
         for active in self._active.values():
             active['stop'].set()
         self._emit('paused', work, message=reason, pause_kind=kind)
@@ -402,6 +432,7 @@ class Coordinator:
             self._ensure_open()
             limited = self._pause_kind == 'ratelimit'
             self._paused, self._pause_kind, self._pause_reason = False, None, None
+            self._persist_pause(None)
             self._consecutive = 0
             if limited:
                 # After an explicit continue, start over from the smallest
@@ -525,7 +556,7 @@ class Coordinator:
                 del self._items[work.work_id]
                 continue
             self.store.update_work_item(work.work_id, state=RUNNING)
-            self.store.set_meta(self._action_key(work.album_id, work.file_id), work.action)
+            self.store.remember_action(work.album_id, work.file_id, work.action)
             work.state = RUNNING
             public = dict(work_id=work.work_id, album_id=work.album_id, file_id=work.file_id,
                           name=record.name, action=work.action, lane=work.lane, bytes=0,

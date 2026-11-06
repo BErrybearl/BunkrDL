@@ -54,6 +54,11 @@ class Store:
             self._db.execute("UPDATE files SET status='pending', updated_at=? WHERE status='downloading'",
                              (time.time(),))
 
+    def remember_action(self, album_id, file_id, action):
+        """Remember the last operation (download/link) tried on a file, so a later
+        "retry failed" repeats it whichever interface caused the failure."""
+        self.set_meta(f'web:{album_id}:last_action:{file_id}', action)
+
     def get_meta(self, key):
         with self._lock:
             row = self._db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

@@ -106,7 +106,18 @@ def content_check(path, record):
     return True, True
 
 
-def reconcile(store, album_id, folder, requeue=True) -> ReconcileResult:
+def prescan(store, album_id, folder) -> dict:
+    """Read-only pass over the folder: the slow content checks, keyed for reuse.
+
+    Runs outside the scheduler lock. ``reconcile(..., checks=cache)`` then only
+    renames and writes records, so the lock covers fast work only.
+    """
+    cache = {}
+    reconcile(store, album_id, folder, requeue=False, dry_run=True, checks=cache)
+    return cache
+
+
+def reconcile(store, album_id, folder, requeue=True, *, dry_run=False, checks=None) -> ReconcileResult:
     root = Path(folder).resolve(strict=True)
     if not root.is_dir():
         raise NotADirectoryError(str(root))
@@ -128,12 +139,23 @@ def reconcile(store, album_id, folder, requeue=True) -> ReconcileResult:
     def available(path, record):
         return not (claimed.get(path_key(path), set()) - {(record.album_id, record.file_id)})
     result = ReconcileResult()
+    checks = checks if checks is not None else {}
+
+    def checked(path, record):
+        try:
+            st = path.stat()
+            key = (str(path), record.file_id, st.st_size, st.st_mtime_ns)
+        except OSError:
+            return content_check(path, record)
+        if key not in checks:
+            checks[key] = content_check(path, record)
+        return checks[key]
 
     def complete(path, record):
         return (path is not None and available(path, record)
                 and not path.name.casefold().endswith(_TEMP_SUFFIXES)
                 and not any(path.name.casefold() + suffix in entries for suffix in _TEMP_SUFFIXES)
-                and content_check(path, record)[0])
+                and checked(path, record)[0])
 
     for record in records:
         if record.status not in ('exported', 'failed', 'pending'):
@@ -151,11 +173,11 @@ def reconcile(store, album_id, folder, requeue=True) -> ReconcileResult:
         paths = [entries.get(candidate.casefold()) for candidate in candidates]
         found = next((path for path in paths if complete(path, record)), None)
         if found is not None:
-            unverified = content_check(found, record)[1]
+            unverified = checked(found, record)[1]
             destination = found
             if record.cdn_name and found.name.casefold() == record.cdn_name.casefold():
                 destination = root / name
-                if destination.name.casefold() != found.name.casefold():
+                if destination.name.casefold() != found.name.casefold() and not dry_run:
                     number = 2
                     while destination.name.casefold() in occupied or not available(destination, record) or (
                             destination.name.casefold() in reserved and destination.name != name):
@@ -173,6 +195,8 @@ def reconcile(store, album_id, folder, requeue=True) -> ReconcileResult:
                     occupied.discard(found.name.casefold())
                     occupied.add(destination.name.casefold())
             claimed.setdefault(path_key(destination), set()).add((record.album_id, record.file_id))
+            if dry_run:
+                continue
             if unverified:
                 store.update_file(album_id, record.file_id, local_path=str(destination),
                                   last_error='内容无法确认，请打开检查后手动标为完成')
@@ -187,7 +211,7 @@ def reconcile(store, album_id, folder, requeue=True) -> ReconcileResult:
             for candidate in candidates for suffix in _TEMP_SUFFIXES)
         category = result.mismatched if present else result.missing
         category.append(record.file_id)
-        if requeue:
+        if requeue and not dry_run:
             store.update_file(album_id, record.file_id, status='pending', link_url=None,
                               link_expires=None, last_error='文件不完整或大小不符' if present else '文件缺失')
             result.requeued.append(record.file_id)
