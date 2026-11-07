@@ -106,7 +106,7 @@ $ArtifactDenylist = @(
     @{ Name = '*.log';        Match = @('*.log') },
     @{ Name = '*.sqlite';     Match = @('*.sqlite') },
     @{ Name = '*.db';         Match = @('*.db') },
-    @{ Name = '.env';         Match = @('.env', '*/.env') }
+    @{ Name = '.env';         Match = @('.env', '*/.env', '.env.*', '*/.env.*') }
 )
 $tracked = @(& git ls-files)
 if ($LASTEXITCODE -ne 0) {
@@ -128,10 +128,11 @@ if ($LASTEXITCODE -ne 0) {
 
 # ---------------------------------------------------------------- [d]
 $dDetail = @()
+$dNote = @()
 $hookRel = '.githooks/pre-commit'
 $hookPath = Join-Path $Root $hookRel
 if (-not (Test-Path -LiteralPath $hookPath -PathType Leaf)) {
-    $dDetail += "${hookRel}: not present (skipped)"
+    $dNote += "${hookRel}: not present (skipped)"
 } else {
     $hookText = Get-Content -LiteralPath $hookPath -Raw
     if ([string]::IsNullOrEmpty($hookText)) { $hookText = '' }
@@ -139,7 +140,7 @@ if (-not (Test-Path -LiteralPath $hookPath -PathType Leaf)) {
         $dDetail += "${hookRel}: does not call scripts/check.ps1"
     }
 }
-Write-Item -Ok ($dDetail.Count -eq 0) -Label '[d] pre-commit hook calls scripts/check.ps1' -Detail $dDetail
+Write-Item -Ok ($dDetail.Count -eq 0) -Label '[d] pre-commit hook calls scripts/check.ps1' -Detail ($dDetail + $dNote)
 
 # ---------------------------------------------------------------- summary
 Write-Host ''
