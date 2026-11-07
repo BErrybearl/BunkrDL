@@ -1,0 +1,16 @@
+#!/bin/sh
+# 提交前门槛：调用仓库检查脚本，不通过则阻止提交。
+# 启用：git config core.hooksPath .githooks
+# 临时跳过：git commit --no-verify
+if ! command -v pwsh >/dev/null 2>&1; then
+    echo "pre-commit: 未找到 pwsh（PowerShell 7）。请安装后重试，或用 git commit --no-verify 临时跳过。" >&2
+    exit 1
+fi
+
+pwsh -NoProfile -File scripts/check.ps1
+status=$?
+if [ "$status" -ne 0 ]; then
+    echo "pre-commit: 仓库检查未通过（退出码 $status），提交已中止。" >&2
+    exit $status
+fi
+exit 0
