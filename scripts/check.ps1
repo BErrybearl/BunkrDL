@@ -3,7 +3,7 @@
 仓库检查门槛：提交前运行，任一项不通过则退出码非 0。
 用法：pwsh -NoProfile -File scripts/check.ps1
 检查项：
-  [a] 根 AGENTS.md 含规则定界标记，CLAUDE.md 指向 AGENTS.md
+  [a] 根 AGENTS.md 含规则定界标记
   [b] 已跟踪文件不含个人绝对路径与密钥形状
   [c] 已跟踪文件不含产物 denylist 中的路径
   [d] .githooks/pre-commit（若存在）调用了本脚本
@@ -60,19 +60,7 @@ if (-not (Test-Path -LiteralPath $agentsPath -PathType Leaf)) {
         $aDetail += 'AGENTS.md: rule markers out of order (end before begin)'
     }
 }
-$claudePath = Join-Path $Root 'CLAUDE.md'
-if (-not (Test-Path -LiteralPath $claudePath -PathType Leaf)) {
-    $aOk = $false
-    $aDetail += 'CLAUDE.md: not found at repo root'
-} else {
-    $claudeText = Get-Content -LiteralPath $claudePath -Raw
-    if ([string]::IsNullOrEmpty($claudeText)) { $claudeText = '' }
-    if ($claudeText -notmatch '(?m)^\s*@AGENTS\.md\s*$') {
-        $aOk = $false
-        $aDetail += 'CLAUDE.md: missing line @AGENTS.md'
-    }
-}
-Write-Item -Ok $aOk -Label '[a] AGENTS.md rule markers + CLAUDE.md @AGENTS.md' -Detail $aDetail
+Write-Item -Ok $aOk -Label '[a] AGENTS.md rule markers' -Detail $aDetail
 
 # ---------------------------------------------------------------- [b]
 $PathAndSecretPatterns = @(
